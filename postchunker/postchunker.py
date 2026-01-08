@@ -49,6 +49,7 @@ def exclude_element(element: HtmlElement) -> bool:
 
 
 # TODO: clean up; the element isn't an HtmlElement, it's an etree.Element?
+# What's going on with this? It seems to be broken for some post fragments.
 def fix_relative_links(element: HtmlElement, rel_path: str):
     for e in element.iter():
         if e.tag == "a":
