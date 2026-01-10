@@ -3,11 +3,13 @@ import chromadb
 from chromadb import Collection
 import re
 import unidecode
+import sqlite3
 
 from postchunker import extract_sections
 from pathlib import Path
 
 postspath = "/home/scossar/zalgorithm/content"
+sqlite_path = "/home/scossar/projects/python/embeddings_generator/sqlite"
 
 # NOTES ##########################################################################################################
 # see https://docs.trychroma.com/docs/embeddings/embedding-functions for details about custom embedding functions,
@@ -35,6 +37,65 @@ class EmbeddingGenerator:
         self.collection = self.get_or_create_collection()
         self.content_directory = content_directory
         self.html_directory = html_directory
+        self.con = self.get_db_connection()
+        self.create_sections_table(self.con)
+
+    def get_db_connection(self) -> sqlite3.Connection:
+        con = sqlite3.connect(f"{sqlite_path}/sections.db")
+        return con
+
+    def create_sections_table(self, con: sqlite3.Connection) -> None:
+        cur = con.cursor()
+        cur.execute("""
+CREATE TABLE IF NOT EXISTS sections (
+    id INTEGER PRIMARY KEY,  -- Auto-incrementing rowid
+    section_id TEXT NOT NULL UNIQUE,
+    post_id TEXT NOT NULL,
+    section_heading_slug TEXT NOT NULL,
+    html_heading TEXT NOT NULL,
+    html_fragment TEXT NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(post_id, section_heading_slug)
+);
+        """)
+        cur.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_section_id ON sections(section_id);"
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_post_id ON sections(post_id);")
+
+        return None
+
+    def save_to_sqlite(
+        self,
+        section_id: str,
+        post_id: str,
+        section_heading_slug: str,
+        html_heading: str,
+        html_fragment: str,
+        updated_at: float,
+    ) -> int:
+        cursor = self.con.execute(
+            """
+        INSERT INTO sections 
+            (section_id, post_id, section_heading_slug, html_heading, html_fragment, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(section_id) DO UPDATE SET
+            html_heading = excluded.html_heading,
+            html_fragment = excluded.html_fragment,
+            updated_at = excluded.updated_at
+        RETURNING id
+        """,
+            (
+                section_id,
+                post_id,
+                section_heading_slug,
+                html_heading,
+                html_fragment,
+                updated_at,
+            ),
+        )
+
+        return cursor.fetchone()[0]
 
     def get_or_create_collection(self) -> Collection:
         return self.chroma_client.get_or_create_collection(name=self.collection_name)
@@ -133,19 +194,25 @@ class EmbeddingGenerator:
             section_heading = section["headings_path"][-1]
             section_heading_slug = self._slugify(section_heading)
             embeddings_text = section["embeddings_text"]
+            section_id = f"{post_id}-{section_heading_slug}"
+
+            db_id = self.save_to_sqlite(
+                section_id=section_id,
+                post_id=str(post_id),  # it's a string!
+                section_heading_slug=section_heading_slug,
+                html_heading=html_heading,
+                html_fragment=html_fragment,
+                updated_at=file_mtime,
+            )
+            self.con.commit()  # do I need to be closing the connection?
 
             for index, text in enumerate(embeddings_text):
                 embedding_id = f"{post_id}-{index}-{section_heading_slug}"
-                # TODO:  (maybe) uncomment after testing
-                # if self._is_up_to_date(embedding_id, file_mtime):
-                #     print(f"Not indexing {title}. Up to date.")
-                #     return None
 
                 metadatas = {
                     "page_title": page_heading,
                     "section_heading": section_heading,
-                    "html_heading": html_heading,
-                    "html_fragment": html_fragment,
+                    "db_id": db_id,
                     "updated_at": file_mtime,
                 }
 
