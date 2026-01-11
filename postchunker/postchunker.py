@@ -17,16 +17,16 @@ def heading_link(
     original_heading: HtmlElement, headings_path: list[str], rel_path: str
 ):
     href = f"/{rel_path}"
-    id = original_heading.attrib.get("id")
+    id = original_heading.attrib.get("id", "")
     if id:
-        href = f"{href}#{id}"
+        href = f"{href}/#{id}"
 
     anchor = etree.Element("a", {"href": href})
     anchor.text = " > ".join(headings_path)
     heading = etree.Element("h2")
     heading.append(anchor)
 
-    return heading
+    return heading, id, href
 
 
 def get_heading_level(tag: str) -> int:
@@ -87,9 +87,6 @@ def section_texts(section: HtmlElement, headings_path: list[str]):
                     line_text = "".join(line.itertext())
                     code += line_text
 
-                # something's off with this; checkout results for roger-bacon-as-magician;
-                # search "was roger bacon a magician?", also look at duplicate result issues with
-                # that query, and look at id's, i.e. "roger-bacon-as-magician#id"
                 if len(texts) and texts[-1].get("tag") == "p":
                     last_paragraph = texts[-1]["text"]
                     code = f"{last_paragraph}\n{code}"
@@ -126,7 +123,9 @@ def extract_sections(filename: str, rel_path: str):
     root = tree.find(".//article")
     heading_tags = ("h1", "h2", "h3", "h4", "h5", "h6")
     sections = []
-    current_heading = None
+    current_heading_element = None
+    heading_id = None
+    heading_href = None
     current_fragment = None
     embeddings_text = []
     headings_path = []
@@ -136,12 +135,14 @@ def extract_sections(filename: str, rel_path: str):
             if current_fragment is not None and has_text(current_fragment):
                 current_fragment = fix_relative_links(current_fragment, rel_path)
                 html_fragment = serialize(current_fragment, pretty_print=False)
-                html_heading = serialize(current_heading, pretty_print=False)
+                html_heading = serialize(current_heading_element, pretty_print=False)
                 embeddings_text = section_texts(current_fragment, headings_path)
                 sections.append(
                     {
                         "html_fragment": html_fragment,
                         "html_heading": html_heading,
+                        "heading_id": heading_id,
+                        "heading_href": heading_href,
                         "headings_path": headings_path,
                         "embeddings_text": embeddings_text,
                     }
@@ -150,7 +151,9 @@ def extract_sections(filename: str, rel_path: str):
             current_fragment = etree.Element("div", {"class": "article-fragment"})
             heading_level = get_heading_level(child.tag)
             headings_path = headings_path[:heading_level] + [child.text]
-            current_heading = heading_link(child, headings_path, rel_path)
+            current_heading_element, heading_id, heading_href = heading_link(
+                child, headings_path, rel_path
+            )
 
         elif current_fragment is not None:
             if not exclude_element(child):
@@ -158,13 +161,15 @@ def extract_sections(filename: str, rel_path: str):
 
     if current_fragment is not None and has_text(current_fragment):
         html_fragment = serialize(current_fragment, pretty_print=False)
-        html_heading = serialize(current_heading, pretty_print=False)
+        html_heading = serialize(current_heading_element, pretty_print=False)
         embeddings_text = section_texts(current_fragment, headings_path)
         sections.append(
             {
                 "html_fragment": html_fragment,
                 "html_heading": html_heading,
                 "headings_path": headings_path,
+                "heading_id": heading_id,
+                "heading_href": heading_href,
                 "embeddings_text": embeddings_text,
             }
         )

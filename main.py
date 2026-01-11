@@ -76,14 +76,14 @@ CREATE TABLE IF NOT EXISTS sections (
     ) -> int:
         cursor = self.con.execute(
             """
-        INSERT INTO sections 
-            (section_id, post_id, section_heading_slug, html_heading, html_fragment, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(section_id) DO UPDATE SET
-            html_heading = excluded.html_heading,
-            html_fragment = excluded.html_fragment,
-            updated_at = excluded.updated_at
-        RETURNING id
+INSERT INTO sections 
+    (section_id, post_id, section_heading_slug, html_heading, html_fragment, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(section_id) DO UPDATE SET
+    html_heading = excluded.html_heading,
+    html_fragment = excluded.html_fragment,
+    updated_at = excluded.updated_at
+RETURNING id
         """,
             (
                 section_id,
@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS sections (
         if not html_path or not relative_path:
             return None
 
-        print(f"Processing {html_path}")
+        print(f"Processing {relative_path}")
 
         post = frontmatter.load(str(filepath))
         file_mtime = filepath.stat().st_mtime
@@ -185,29 +185,39 @@ CREATE TABLE IF NOT EXISTS sections (
             )
             return None
 
+        # TODO: get the id from HTML headings
         sections = extract_sections(html_path, relative_path)
 
+        sections_data = []
         for section in sections:
             html_fragment = section["html_fragment"]
             html_heading = section["html_heading"]
             page_heading = section["headings_path"][0]
             section_heading = section["headings_path"][-1]
-            section_heading_slug = self._slugify(section_heading)
+            # TODO: use the actual heading id (soon to be returned from extract_sections)
+            # section_heading_slug = self._slugify(section_heading)
+            section_heading_id = section["heading_id"]
             embeddings_text = section["embeddings_text"]
-            section_id = f"{post_id}-{section_heading_slug}"
+            section_id = f"{post_id}-{section_heading_id}"
+
+            section_data = {
+                "heading_id": section_heading_id,
+                "heading_href": section["heading_href"],
+            }
+            sections_data.append(section_data)
 
             db_id = self.save_to_sqlite(
                 section_id=section_id,
                 post_id=str(post_id),  # it's a string!
-                section_heading_slug=section_heading_slug,
+                section_heading_slug=section_heading_id,
                 html_heading=html_heading,
                 html_fragment=html_fragment,
                 updated_at=file_mtime,
             )
-            self.con.commit()  # do I need to be closing the connection?
+            self.con.commit()  # do I also need to be closing the connection? (no?)
 
             for index, text in enumerate(embeddings_text):
-                embedding_id = f"{post_id}-{index}-{section_heading_slug}"
+                embedding_id = f"{post_id}-{index}-{section_heading_id}"
 
                 metadatas = {
                     "page_title": page_heading,
