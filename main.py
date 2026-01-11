@@ -4,11 +4,13 @@ from chromadb import Collection
 import re
 import unidecode
 import sqlite3
+import json
 
 from postchunker import extract_sections
 from pathlib import Path
 
 postspath = "/home/scossar/zalgorithm/content"
+datapath = "/home/scossar/zalgorithm/data/fragments/sections.json"
 sqlite_path = "/home/scossar/projects/python/embeddings_generator/sqlite"
 
 # NOTES ##########################################################################################################
@@ -142,10 +144,23 @@ RETURNING id
         """
         Generate embeddings for blog content
         """
+        paths_data = []
         for path in Path(self.content_directory).rglob("*"):
             if not self._should_process_file(path):
                 continue
-            self.generate_embedding(path)
+            path_data = self.generate_embedding(path)
+            paths_data.append(path_data)
+
+        # data for the Hugo build process
+        sections_map = {}
+        for path in paths_data:
+            for section in path:
+                relative_path = section["relative_path"]
+                db_id = section["db_id"]
+                sections_map[relative_path] = {"db_id": db_id}
+
+        with open(datapath, "w") as f:
+            json.dump(sections_map, f)
 
     def get_file_paths(self, md_path: Path) -> tuple[str, str] | tuple[None, None]:
         try:
@@ -168,7 +183,7 @@ RETURNING id
             print(f"No file exists at {html_path}")
             return None, None
 
-    def generate_embedding(self, filepath: Path) -> None:
+    def generate_embedding(self, filepath: Path) -> list[dict[str, str]] | None:
         html_path, relative_path = self.get_file_paths(filepath)
         if not html_path or not relative_path:
             return None
@@ -185,7 +200,6 @@ RETURNING id
             )
             return None
 
-        # TODO: get the id from HTML headings
         sections = extract_sections(html_path, relative_path)
 
         sections_data = []
@@ -194,17 +208,9 @@ RETURNING id
             html_heading = section["html_heading"]
             page_heading = section["headings_path"][0]
             section_heading = section["headings_path"][-1]
-            # TODO: use the actual heading id (soon to be returned from extract_sections)
-            # section_heading_slug = self._slugify(section_heading)
             section_heading_id = section["heading_id"]
             embeddings_text = section["embeddings_text"]
             section_id = f"{post_id}-{section_heading_id}"
-
-            section_data = {
-                "heading_id": section_heading_id,
-                "heading_href": section["heading_href"],
-            }
-            sections_data.append(section_data)
 
             db_id = self.save_to_sqlite(
                 section_id=section_id,
@@ -215,6 +221,13 @@ RETURNING id
                 updated_at=file_mtime,
             )
             self.con.commit()  # do I also need to be closing the connection? (no?)
+
+            section_data = {
+                "heading_id": section_heading_id,  # might not need this?
+                "relative_path": section["heading_href"],
+                "db_id": db_id,
+            }
+            sections_data.append(section_data)
 
             for index, text in enumerate(embeddings_text):
                 embedding_id = f"{post_id}-{index}-{section_heading_id}"
@@ -229,6 +242,8 @@ RETURNING id
                 self.collection.upsert(
                     ids=embedding_id, metadatas=metadatas, documents=text
                 )
+
+        return sections_data
 
     # for testing
     def query_collection(self, query: str):
