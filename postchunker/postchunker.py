@@ -16,10 +16,10 @@ def serialize(fragment: HtmlElement, pretty_print: bool = False):
 def heading_link(
     original_heading: HtmlElement, headings_path: list[str], rel_path: str
 ):
-    href = f"/{rel_path}"
+    href = f"/{rel_path}/"
     id = original_heading.attrib.get("id", "")
     if id:
-        href = f"{href}/#{id}"
+        href = f"{href}#{id}"
 
     anchor = etree.Element("a", {"href": href})
     anchor.text = " > ".join(headings_path)
