@@ -270,3 +270,9 @@ RETURNING id
 
 embeddings_generator = EmbeddingGenerator()
 embeddings_generator.generate_embeddings()
+
+# chroma data
+# rsync -avz --delete /home/scossar/projects/python/embeddings_generator/chroma/ scossar@zalgorithm.com:/tmp/chroma-data/
+
+# sqlite database
+# rsync -avz --delete /home/scossar/projects/python/embeddings_generator/sqlite/sections.db scossar@zalgorithm.com:/tmp/sections.db
