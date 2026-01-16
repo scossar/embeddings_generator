@@ -2,6 +2,6 @@
 __pycache__/
 chroma-data/
 chroma/
-provision_docker
+sqlite/
 
 last_session
