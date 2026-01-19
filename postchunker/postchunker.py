@@ -150,7 +150,9 @@ def extract_sections(filename: str, rel_path: str):
 
             current_fragment = etree.Element("div", {"class": "article-fragment"})
             heading_level = get_heading_level(child.tag)
-            headings_path = headings_path[:heading_level] + [child.text]
+            headings_path = (
+                headings_path[:heading_level] + [child.text]
+            )  # if child.text is None, an error will be triggered in heading_link function
             current_heading_element, heading_id, heading_href = heading_link(
                 child, headings_path, rel_path
             )
@@ -160,6 +162,7 @@ def extract_sections(filename: str, rel_path: str):
                 current_fragment.append(child)
 
     if current_fragment is not None and has_text(current_fragment):
+        current_fragment = fix_relative_links(current_fragment, rel_path)
         html_fragment = serialize(current_fragment, pretty_print=False)
         html_heading = serialize(current_heading_element, pretty_print=False)
         embeddings_text = section_texts(current_fragment, headings_path)

@@ -76,28 +76,71 @@ CREATE TABLE IF NOT EXISTS sections (
         html_fragment: str,
         updated_at: float,
     ) -> int:
-        cursor = self.con.execute(
-            """
-INSERT INTO sections 
-    (section_id, post_id, section_heading_slug, html_heading, html_fragment, updated_at)
-VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT(section_id) DO UPDATE SET
-    html_heading = excluded.html_heading,
-    html_fragment = excluded.html_fragment,
-    updated_at = excluded.updated_at
-RETURNING id
-        """,
-            (
-                section_id,
-                post_id,
-                section_heading_slug,
-                html_heading,
-                html_fragment,
-                updated_at,
-            ),
-        )
+        try:
+            cursor = self.con.execute(
+                """
+    INSERT INTO sections 
+        (section_id, post_id, section_heading_slug, html_heading, html_fragment, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    RETURNING id
+                """,
+                (
+                    section_id,
+                    post_id,
+                    section_heading_slug,
+                    html_heading,
+                    html_fragment,
+                    updated_at,
+                ),
+            )
+            return cursor.fetchone()[0]
 
-        return cursor.fetchone()[0]
+        except sqlite3.IntegrityError:
+            # Query the existing row to see what's conflicting
+            existing = self.con.execute(
+                "SELECT * FROM sections WHERE section_id = ?", (section_id,)
+            ).fetchone()
+
+            if existing:
+                print(f"\n{'=' * 80}")
+                print(f"CONFLICT on section_id: {section_id}")
+                print(f"{'=' * 80}")
+                print("Attempting to insert:")
+                print(f"  post_id: {post_id}")
+                print(f"  section_heading_slug: {section_heading_slug}")
+                print(f"  html_heading: {html_heading[:100]}...")
+                print(f"  updated_at: {updated_at}")
+                print("\nExisting row:")
+                print(f"  id: {existing[0]}")
+                print(f"  section_id: {existing[1]}")
+                print(f"  post_id: {existing[2]}")
+                print(f"  section_heading_slug: {existing[3]}")
+                print(f"  html_heading: {existing[4][:100]}...")
+                print(f"  updated_at: {existing[6]}")
+                print(f"{'=' * 80}\n")
+
+            # Check for composite unique constraint violation
+            composite_conflict = self.con.execute(
+                "SELECT * FROM sections WHERE post_id = ? AND section_heading_slug = ?",
+                (post_id, section_heading_slug),
+            ).fetchone()
+
+            if composite_conflict and not existing:
+                print(f"\n{'=' * 80}")
+                print("CONFLICT on (post_id, section_heading_slug)")
+                print(f"{'=' * 80}")
+                print("Attempting to insert:")
+                print(f"  section_id: {section_id}")
+                print(f"  post_id: {post_id}")
+                print(f"  section_heading_slug: {section_heading_slug}")
+                print("\nConflicting row:")
+                print(f"  id: {composite_conflict[0]}")
+                print(f"  section_id: {composite_conflict[1]}")
+                print(f"  post_id: {composite_conflict[2]}")
+                print(f"  section_heading_slug: {composite_conflict[3]}")
+                print(f"{'=' * 80}\n")
+
+            raise  # Re-raise the exception to stop execution
 
     def get_or_create_collection(self) -> Collection:
         return self.chroma_client.get_or_create_collection(name=self.collection_name)
